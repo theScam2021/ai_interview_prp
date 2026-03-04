@@ -139,16 +139,18 @@ function InterviewPage() {
     stopRecording()
     
     const currentQuestion = questions[currentQuestionIndex]
+    const answerText = transcript.trim() || 'No answer provided'
+    
     const answer = {
       questionId: currentQuestion.id,
       questionText: currentQuestion.questionText,
-      transcript: transcript || 'No answer provided'
+      transcript: answerText
     }
     
     setAnswers(prev => [...prev, answer])
     
     try {
-      await submitAnswer(sessionId, currentQuestion.id, transcript || 'No answer provided')
+      await submitAnswer(sessionId, currentQuestion.id, answerText)
     } catch (error) {
       console.error('Failed to submit answer:', error)
     }
@@ -259,12 +261,26 @@ function InterviewPage() {
             
             <button
               onClick={handleNextQuestion}
-              disabled={!transcript && isRecording}
-              className="flex-1 bg-green-600 hover:bg-green-700 text-white font-semibold py-4 rounded-lg transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+              className={`flex-1 font-semibold py-4 rounded-lg transition-colors ${
+                transcript.trim() 
+                  ? 'bg-green-600 hover:bg-green-700 text-white' 
+                  : 'bg-yellow-500 hover:bg-yellow-600 text-white'
+              }`}
             >
-              {currentQuestionIndex < questions.length - 1 ? 'Next Question' : 'Complete Interview'}
+              {transcript.trim() 
+                ? (currentQuestionIndex < questions.length - 1 ? 'Next Question' : 'Complete Interview')
+                : (currentQuestionIndex < questions.length - 1 ? 'Skip Question' : 'Finish Interview')
+              }
             </button>
           </div>
+
+          {!transcript.trim() && (
+            <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+              <p className="text-sm text-yellow-800">
+                ⚠️ No answer recorded yet. Click "Start Recording" to answer, or "Skip Question" to move forward.
+              </p>
+            </div>
+          )}
         </div>
 
         <div className="bg-white rounded-xl shadow-lg p-6">

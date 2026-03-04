@@ -45,6 +45,11 @@ function ReportPage() {
     { subject: 'Relevance', score: report?.relevanceScore || 0, fullMark: 100 }
   ]
 
+  // Calculate answered vs skipped questions
+  const totalQuestions = report?.questionFeedback?.length || 0
+  const answeredQuestions = report?.questionFeedback?.filter(q => q.score > 0).length || 0
+  const skippedQuestions = totalQuestions - answeredQuestions
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-12 px-4">
       <div className="max-w-6xl mx-auto">
@@ -73,6 +78,26 @@ function ReportPage() {
             color="purple"
           />
         </div>
+
+        {skippedQuestions > 0 && (
+          <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-6 mb-8">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="w-6 h-6 text-yellow-600 flex-shrink-0 mt-1" />
+              <div>
+                <h3 className="font-semibold text-yellow-800 mb-2">Interview Completion Notice</h3>
+                <p className="text-yellow-700">
+                  You answered <span className="font-bold">{answeredQuestions} out of {totalQuestions}</span> questions.
+                  {skippedQuestions > 0 && (
+                    <span> {skippedQuestions} question{skippedQuestions > 1 ? 's were' : ' was'} skipped or not answered.</span>
+                  )}
+                </p>
+                <p className="text-sm text-yellow-600 mt-2">
+                  💡 Tip: Answering all questions provides a more accurate assessment of your skills.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="grid md:grid-cols-2 gap-8 mb-8">
           <div className="bg-white rounded-xl shadow-lg p-6">
@@ -215,16 +240,33 @@ function InsightItem({ icon, title, items }) {
 }
 
 function QuestionFeedback({ data, index }) {
+  const getScoreColor = (score) => {
+    if (score === 0) return 'text-red-600'
+    if (score < 40) return 'text-orange-600'
+    if (score < 70) return 'text-yellow-600'
+    return 'text-green-600'
+  }
+
+  const getScoreLabel = (score) => {
+    if (score === 0) return 'Not Answered'
+    if (score < 40) return 'Needs Improvement'
+    if (score < 70) return 'Good'
+    return 'Excellent'
+  }
+
   return (
-    <div className="border border-gray-200 rounded-lg p-4">
+    <div className={`border rounded-lg p-4 ${data.score === 0 ? 'border-red-300 bg-red-50' : 'border-gray-200'}`}>
       <div className="flex items-start justify-between mb-2">
         <div className="flex-1">
           <p className="font-semibold text-gray-800 mb-1">Q{index + 1}: {data.question}</p>
           <p className="text-sm text-gray-600">{data.feedback}</p>
         </div>
-        <div className="ml-4">
-          <div className={`text-2xl font-bold ${data.score >= 70 ? 'text-green-600' : 'text-orange-600'}`}>
+        <div className="ml-4 text-center">
+          <div className={`text-2xl font-bold ${getScoreColor(data.score)}`}>
             {data.score}%
+          </div>
+          <div className={`text-xs ${getScoreColor(data.score)}`}>
+            {getScoreLabel(data.score)}
           </div>
         </div>
       </div>

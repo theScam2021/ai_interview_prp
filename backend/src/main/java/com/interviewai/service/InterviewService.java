@@ -99,11 +99,54 @@ public class InterviewService {
             allAnswers.addAll(answers);
         }
         
+        // Evaluate each answer individually with AI
+        List<QuestionFeedback> feedbackList = new ArrayList<>();
+        int totalScore = 0;
+        int answeredCount = 0;
+        
+        for (int i = 0; i < questions.size(); i++) {
+            Question question = questions.get(i);
+            Answer answer = i < allAnswers.size() ? allAnswers.get(i) : null;
+            
+            QuestionFeedback feedback = evaluateAnswer(question, answer);
+            feedbackList.add(feedback);
+            
+            // Only count answered questions in average
+            if (answer != null && !isEmptyAnswer(answer.getTranscript())) {
+                totalScore += feedback.getScore();
+                answeredCount++;
+            }
+        }
+        
+        // Get overall evaluation from AI
         String evaluationPrompt = buildEvaluationPrompt(questions, allAnswers);
         String aiResponse = ollamaService.generateResponse(evaluationPrompt);
-        
         InterviewReport report = parseEvaluationReport(aiResponse);
         
+        // Adjust overall score based on actual answers
+        if (answeredCount > 0) {
+            int avgScore = totalScore / answeredCount;
+            report.setOverallScore(avgScore);
+            
+            // Adjust other scores proportionally
+            double factor = avgScore / 75.0; // 75 is default score
+            report.setTechnicalScore((int)(report.getTechnicalScore() * factor));
+            report.setCommunicationScore((int)(report.getCommunicationScore() * factor));
+            report.setConfidenceScore((int)(report.getConfidenceScore() * factor));
+            report.setStructureScore((int)(report.getStructureScore() * factor));
+            report.setRelevanceScore((int)(report.getRelevanceScore() * factor));
+        } else {
+            // No answers provided
+            report.setOverallScore(0);
+            report.setTechnicalScore(0);
+            report.setCommunicationScore(0);
+            report.setConfidenceScore(0);
+            report.setStructureScore(0);
+            report.setRelevanceScore(0);
+            report.getWeaknesses().add("No answers provided");
+        }
+        
+        // Save to session
         session.setOverallScore(report.getOverallScore());
         session.setTechnicalScore(report.getTechnicalScore());
         session.setCommunicationScore(report.getCommunicationScore());
@@ -116,17 +159,107 @@ public class InterviewService {
         
         sessionRepository.save(session);
         
-        List<QuestionFeedback> feedbackList = new ArrayList<>();
-        for (int i = 0; i < questions.size() && i < allAnswers.size(); i++) {
-            QuestionFeedback feedback = new QuestionFeedback();
-            feedback.setQuestion(questions.get(i).getQuestionText());
-            feedback.setScore(70 + (int)(Math.random() * 20));
-            feedback.setFeedback("Good answer with room for improvement");
-            feedbackList.add(feedback);
-        }
         report.setQuestionFeedback(feedbackList);
-        
         return report;
+    }
+    
+    private QuestionFeedback evaluateAnswer(Question question, Answer answer) {
+        QuestionFeedback feedback = new QuestionFeedback();
+        feedback.setQuestion(question.getQuestionText());
+        
+        // Check if answer exists and is not empty
+        if (answer == null || isEmptyAnswer(answer.getTranscript())) {
+            feedback.setScore(0);
+            feedback.setFeedback("No answer provided. Please attempt to answer all questions.");
+            return feedback;
+        }
+        
+        String transcript = answer.getTranscript().trim();
+        
+        // Check for very short answers
+        if (transcript.length() < 20) {
+            feedback.setScore(15);
+            feedback.setFeedback("Answer is too brief. Provide more detailed explanation with examples.");
+            return feedback;
+        }
+        
+        // Use AI to evaluate the answer
+        String evaluationPrompt = String.format("""
+            Evaluate this interview answer on a scale of 0-100.
+            
+            Question: %s
+            Answer: %s
+            
+            Provide evaluation in this exact JSON format:
+            {
+              "score": 75,
+              "feedback": "Brief feedback on the answer quality"
+            }
+            
+            Scoring criteria:
+            - 0-20: No answer or irrelevant
+            - 21-40: Very brief or lacks substance
+            - 41-60: Basic answer, needs more detail
+            - 61-75: Good answer with relevant points
+            - 76-85: Strong answer with examples
+            - 86-100: Excellent, comprehensive answer
+            
+            Only return the JSON, no additional text.
+            """, 
+            question.getQuestionText(),
+            transcript
+        );
+        
+        try {
+            String aiResponse = ollamaService.generateResponse(evaluationPrompt);
+            String jsonStr = extractJSON(aiResponse);
+            
+            // Parse the JSON response
+            com.fasterxml.jackson.databind.JsonNode node = objectMapper.readTree(jsonStr);
+            int score = node.get("score").asInt();
+            String feedbackText = node.get("feedback").asText();
+            
+            feedback.setScore(score);
+            feedback.setFeedback(feedbackText);
+        } catch (Exception e) {
+            // Fallback: Basic evaluation based on answer length and keywords
+            feedback.setScore(evaluateAnswerBasic(transcript));
+            feedback.setFeedback("Answer provided. Consider adding more specific examples and details.");
+        }
+        
+        return feedback;
+    }
+    
+    private boolean isEmptyAnswer(String transcript) {
+        if (transcript == null || transcript.trim().isEmpty()) {
+            return true;
+        }
+        
+        String cleaned = transcript.trim().toLowerCase();
+        
+        // Check for common "no answer" phrases
+        return cleaned.equals("no answer provided") ||
+               cleaned.equals("no answer") ||
+               cleaned.equals("skipped") ||
+               cleaned.length() < 5;
+    }
+    
+    private int evaluateAnswerBasic(String transcript) {
+        int length = transcript.length();
+        int wordCount = transcript.split("\\s+").length;
+        
+        // Basic scoring based on length and word count
+        if (length < 50 || wordCount < 10) {
+            return 30; // Too brief
+        } else if (length < 150 || wordCount < 30) {
+            return 50; // Basic answer
+        } else if (length < 300 || wordCount < 60) {
+            return 65; // Good answer
+        } else if (length < 500 || wordCount < 100) {
+            return 75; // Strong answer
+        } else {
+            return 85; // Comprehensive answer
+        }
     }
     
     public InterviewReport getReport(Long sessionId) {
@@ -147,11 +280,12 @@ public class InterviewService {
         List<Question> questions = questionRepository.findBySessionId(sessionId);
         List<QuestionFeedback> feedbackList = new ArrayList<>();
         
+        // Get actual feedback for each question
         for (Question question : questions) {
-            QuestionFeedback feedback = new QuestionFeedback();
-            feedback.setQuestion(question.getQuestionText());
-            feedback.setScore(70 + (int)(Math.random() * 20));
-            feedback.setFeedback("Good understanding demonstrated");
+            List<Answer> answers = answerRepository.findByQuestionId(question.getId());
+            Answer answer = answers.isEmpty() ? null : answers.get(0);
+            
+            QuestionFeedback feedback = evaluateAnswer(question, answer);
             feedbackList.add(feedback);
         }
         
